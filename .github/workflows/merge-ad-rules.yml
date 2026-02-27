@@ -21,7 +21,7 @@ jobs:
           # 创建临时目录
           mkdir -p temp_rules
           
-          # 规则列表（你提供的7个）
+          # 规则列表
           RULES=(
             "https://adguardteam.github.io/HostlistsRegistry/assets/filter_21.txt"
             "https://raw.githubusercontent.com/xinggsf/Adblock-Plus-Rule/master/rule.txt"
@@ -41,32 +41,32 @@ jobs:
           # 创建合并文件
           > merged_rules.txt
           
-          # 处理每个规则文件 - 精准提取广告拦截规则
+          # 处理每个规则文件
           for file in temp_rules/*.txt; do
             if [ -f "$file" ]; then
               echo "处理文件: $file"
               
-              # 使用更精确的 grep 模式来匹配 AdBlock Plus 规则
-              grep -E '^\|\|[^\^]+\^|^[.[:alnum:]]' "$file" | \
-                # 排除以感叹号 (!) 开头的注释行
+              # 多级过滤：只保留标准的域名拦截规则
+              grep -E '^\|\|[^\^]+\^|^[a-zA-Z0-9]' "$file" | \
                 grep -v '^!' | \
-                # 排除以 # 开头的注释行
                 grep -v '^#' | \
-                # 排除以 @@ 开头的例外规则
                 grep -v '^@@' | \
-                # 排除包含 domain= 的行（通常是规则修饰符）
-                grep -v 'domain=' >> merged_rules.txt
+                grep -v 'domain=' | \
+                grep -v '##' | \
+                grep -v '^[0-9]\{1,3\}\.' | \
+                grep -v '[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}' | \
+                grep -v '^\.' >> merged_rules.txt
             fi
           done
           
           # 排序去重
           sort -u merged_rules.txt -o merged_rules.txt
           
-          # 统计行数
+          # 统计
           RULE_COUNT=$(wc -l < merged_rules.txt)
           echo "📊 合并后规则总数: $RULE_COUNT"
           
-          # 显示前10条预览
+          # 预览前10条
           echo "📝 规则预览（前10条）:"
           head -10 merged_rules.txt
 
