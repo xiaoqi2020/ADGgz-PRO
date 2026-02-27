@@ -41,18 +41,21 @@ jobs:
           # 创建合并文件
           > merged_rules.txt
           
-          # 处理每个规则文件
-          for file in temp_rules/*.txt; do
-            if [ -f "$file" ]; then
-              echo "处理文件: $file"
-              
-              # 提取域名规则（以 || 开头或以 . 开头或包含 /^ 的规则）
-              grep -E '^\|\|[^\^]+\^|^[.[:alnum:]]' "$file" | \
-                grep -v '^!' | \
-                grep -v '^#' | \
-                grep -v '^@@' >> merged_rules.txt
-            fi
-          done
+# 处理每个规则文件
+for file in temp_rules/*.txt; do
+  if [ -f "$file" ]; then
+    echo "处理文件: $file"
+    
+    # 使用更精确的 grep 模式来匹配 AdBlock Plus 规则
+    grep -E '^\|\|[^\^]+\^|^[.[:alnum:]]' "$file" | \
+      # 第一步：排除以感叹号 (!) 开头的注释行
+      grep -v '^!' | \
+      # 第二步：排除以 # 开头的注释行（有些文件用这个）
+      grep -v '^#' | \
+      # 第三步：排除以 @@ 开头的例外规则（通常不需要加入拦截列表）
+      grep -v '^@@' >> merged_rules.txt
+  fi
+done
           
           # 排序去重
           sort -u merged_rules.txt -o merged_rules.txt
