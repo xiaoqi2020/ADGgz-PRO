@@ -56,12 +56,7 @@ for file in temp_rules/*.txt; do
       grep -v '^@@' >> merged_rules.txt
   fi
 done
-          
-          # 排序去重
-          sort -u merged_rules.txt -o merged_rules.txt
-          
-          # 统计行数
-          echo "合并后规则总数: $(wc -l < merged_rules.txt)"
+
 
       - name: 检查文件是否有变化
         id: check_changes
