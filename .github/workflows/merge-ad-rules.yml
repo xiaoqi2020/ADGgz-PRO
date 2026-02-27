@@ -1,0 +1,96 @@
+name: 合并广告规则列表
+
+on:
+  schedule:
+    # 每天凌晨2点自动运行
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  merge-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库代码
+        uses: actions/checkout@v3
+
+      - name: 下载并合并规则
+        run: |
+          # 创建临时目录
+          mkdir -p temp_rules
+          
+          # 规则列表（你提供的7个）
+          RULES=(
+            "https://adguardteam.github.io/HostlistsRegistry/assets/filter_21.txt"
+            "https://raw.githubusercontent.com/xinggsf/Adblock-Plus-Rule/master/rule.txt"
+            "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt"
+            "https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/AWAvenue-Ads-Rule.txt"
+            "https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Replenish.txt"
+            "https://adguardteam.github.io/HostlistsRegistry/assets/filter_53.txt"
+            "https://adguardteam.github.io/HostlistsRegistry/assets/filter_29.txt"
+          )
+          
+          # 下载所有规则文件
+          for i in "${!RULES[@]}"; do
+            echo "下载规则 $((i+1)): ${RULES[$i]}"
+            curl -L -f -o "temp_rules/rule_$i.txt" "${RULES[$i]}" || echo "警告: 下载失败 ${RULES[$i]}"
+          done
+          
+          # 创建合并文件
+          > merged_rules.txt
+          
+          # 处理每个规则文件
+          for file in temp_rules/*.txt; do
+            if [ -f "$file" ]; then
+              echo "处理文件: $file"
+              
+              # 提取域名规则（以 || 开头或以 . 开头或包含 /^ 的规则）
+              grep -E '^\|\|[^\^]+\^|^[.[:alnum:]]' "$file" | \
+                grep -v '^!' | \
+                grep -v '^#' | \
+                grep -v '^@@' >> merged_rules.txt
+            fi
+          done
+          
+          # 排序去重
+          sort -u merged_rules.txt -o merged_rules.txt
+          
+          # 统计行数
+          echo "合并后规则总数: $(wc -l < merged_rules.txt)"
+
+      - name: 检查文件是否有变化
+        id: check_changes
+        run: |
+          if [ -f merged_rules.txt ] && [ -f adblock_rules.txt ]; then
+            if diff -q merged_rules.txt adblock_rules.txt >/dev/null; then
+              echo "changed=false" >> $GITHUB_OUTPUT
+              rm -f merged_rules.txt
+            else
+              echo "changed=true" >> $GITHUB_OUTPUT
+              mv merged_rules.txt adblock_rules.txt
+            fi
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            mv merged_rules.txt adblock_rules.txt
+          fi
+
+      - name: 提交更新文件
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add adblock_rules.txt
+          git commit -m "自动合并广告规则 - $(date +'%Y-%m-%d')"
+          git push
+
+      - name: 生成规则统计
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          echo "规则统计信息:" > stats.txt
+          echo "更新时间: $(date)" >> stats.txt
+          echo "总规则数: $(wc -l < adblock_rules.txt)" >> stats.txt
+          echo "" >> stats.txt
+          echo "前20条规则预览:" >> stats.txt
+          head -20 adblock_rules.txt >> stats.txt
