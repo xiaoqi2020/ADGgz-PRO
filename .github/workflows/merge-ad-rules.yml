@@ -35,41 +35,56 @@ jobs:
           # 下载所有规则文件
           for i in "${!RULES[@]}"; do
             echo "下载规则 $((i+1)): ${RULES[$i]}"
-            curl -L -f -o "temp_rules/rule_$i.txt" "${RULES[$i]}" || echo "警告: 下载失败 ${RULES[$i]}"
+            curl -L -f -o "temp_rules/rule_$i.txt" "${RULES[$i]}" || echo "⚠️ 警告: 下载失败 ${RULES[$i]}"
           done
           
           # 创建合并文件
           > merged_rules.txt
           
-# 处理每个规则文件
-for file in temp_rules/*.txt; do
-  if [ -f "$file" ]; then
-    echo "处理文件: $file"
-    
-    # 使用更精确的 grep 模式来匹配 AdBlock Plus 规则
-    grep -E '^\|\|[^\^]+\^|^[.[:alnum:]]' "$file" | \
-      # 第一步：排除以感叹号 (!) 开头的注释行
-      grep -v '^!' | \
-      # 第二步：排除以 # 开头的注释行（有些文件用这个）
-      grep -v '^#' | \
-      # 第三步：排除以 @@ 开头的例外规则（通常不需要加入拦截列表）
-      grep -v '^@@' >> merged_rules.txt
-  fi
-done
-
+          # 处理每个规则文件 - 精准提取广告拦截规则
+          for file in temp_rules/*.txt; do
+            if [ -f "$file" ]; then
+              echo "处理文件: $file"
+              
+              # 使用更精确的 grep 模式来匹配 AdBlock Plus 规则
+              grep -E '^\|\|[^\^]+\^|^[.[:alnum:]]' "$file" | \
+                # 排除以感叹号 (!) 开头的注释行
+                grep -v '^!' | \
+                # 排除以 # 开头的注释行
+                grep -v '^#' | \
+                # 排除以 @@ 开头的例外规则
+                grep -v '^@@' | \
+                # 排除包含 domain= 的行（通常是规则修饰符）
+                grep -v 'domain=' >> merged_rules.txt
+            fi
+          done
+          
+          # 排序去重
+          sort -u merged_rules.txt -o merged_rules.txt
+          
+          # 统计行数
+          RULE_COUNT=$(wc -l < merged_rules.txt)
+          echo "📊 合并后规则总数: $RULE_COUNT"
+          
+          # 显示前10条预览
+          echo "📝 规则预览（前10条）:"
+          head -10 merged_rules.txt
 
       - name: 检查文件是否有变化
         id: check_changes
         run: |
           if [ -f merged_rules.txt ] && [ -f adblock_rules.txt ]; then
             if diff -q merged_rules.txt adblock_rules.txt >/dev/null; then
+              echo "✅ 规则无变化，跳过提交"
               echo "changed=false" >> $GITHUB_OUTPUT
               rm -f merged_rules.txt
             else
+              echo "🔄 规则有变化，准备更新"
               echo "changed=true" >> $GITHUB_OUTPUT
               mv merged_rules.txt adblock_rules.txt
             fi
           else
+            echo "🔄 首次运行，创建规则文件"
             echo "changed=true" >> $GITHUB_OUTPUT
             mv merged_rules.txt adblock_rules.txt
           fi
@@ -80,15 +95,35 @@ done
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add adblock_rules.txt
-          git commit -m "自动合并广告规则 - $(date +'%Y-%m-%d')"
+          git commit -m "📦 自动合并广告规则 - $(date +'%Y-%m-%d') (共 $(wc -l < adblock_rules.txt) 条)"
           git push
 
-      - name: 生成规则统计
+      - name: 生成规则统计信息
         if: steps.check_changes.outputs.changed == 'true'
         run: |
-          echo "规则统计信息:" > stats.txt
-          echo "更新时间: $(date)" >> stats.txt
-          echo "总规则数: $(wc -l < adblock_rules.txt)" >> stats.txt
-          echo "" >> stats.txt
-          echo "前20条规则预览:" >> stats.txt
-          head -20 adblock_rules.txt >> stats.txt
+          {
+            echo "# 广告规则合并统计"
+            echo ""
+            echo "## 基本信息"
+            echo "- 更新时间: $(date +'%Y-%m-%d %H:%M:%S')"
+            echo "- 总规则数: $(wc -l < adblock_rules.txt)"
+            echo "- 规则来源: 7个广告拦截列表"
+            echo ""
+            echo "## 规则预览（前20条）"
+            echo '```'
+            head -20 adblock_rules.txt
+            echo '```'
+            echo ""
+            echo "## 使用说明"
+            echo "在 AdGuard Home 中添加订阅链接:"
+            echo '```'
+            echo "https://raw.githubusercontent.com/${{ github.repository }}/main/adblock_rules.txt"
+            echo '```'
+          } > stats.md
+
+      - name: 上传统计信息
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rule-stats
+          path: stats.md
